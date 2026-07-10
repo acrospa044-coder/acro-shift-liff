@@ -46,11 +46,11 @@
   <script>
     // ↓↓↓ 必ず自分のLIFF IDとGASウェブアプリURLに書き換えてください ↓↓↓
     const LIFF_ID = '2010662463-ufSjuYYr';
-    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbw8TiF_syMmiySZPB9041NXnGAT147AlxzypFVsv8kj9TVjLrU3bq9ha55JBCQqu4wl/exec';
+    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/XXXXXXXXXX/exec';
     // ↑↑↑ ここまで ↑↑↑
 
     const START_HOUR = 12;
-    const END_HOUR = 29; // 29:00 = "LAST"
+    const END_HOUR = 27; // 27時(=翌3:00)がLAST枠になる。実時間は翌2:30まで。
     const STEP_MIN = 30;
 
     let profile = null;
@@ -84,11 +84,12 @@
       for (let h = START_HOUR; h <= END_HOUR; h++) {
         for (let m = 0; m < 60; m += STEP_MIN) {
           if (h === END_HOUR && m > 0) continue;
-          const value = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-          let label;
+          let value, label;
           if (h === END_HOUR && m === 0) {
+            value = 'LAST'; // 値自体を'LAST'にする(Sheets側で時刻扱いされるのを根本的に防ぐため)
             label = 'LAST';
           } else {
+            value = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
             const displayH = h >= 24 ? ('翌' + String(h - 24).padStart(2, '0')) : String(h).padStart(2, '0');
             label = displayH + ':' + String(m).padStart(2, '0');
           }
@@ -150,7 +151,7 @@
       fetch(GAS_WEBAPP_URL, {
         method: 'POST',
         mode: 'no-cors', // レスポンスは読めなくなるが、CORSブロックによる「Load failed」を回避する
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライトを回避するため text/plain で送る
         body: JSON.stringify({
           userId: profile ? profile.userId : 'unknown',
           displayName: profile ? profile.displayName : '不明',
@@ -158,6 +159,7 @@
         })
       })
         .then(function() {
+          // no-corsモードではレスポンス内容を読めないため、fetch自体が成功したら送信完了とみなす
           document.getElementById('status').textContent = '送信が完了しました。お疲れ様です!';
           if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
             setTimeout(function() { liff.closeWindow(); }, 1500);
