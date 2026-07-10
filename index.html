@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ACRO シフト希望</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      background: #111; color: #eee; padding: 16px; margin: 0;
+    }
+    h1 { font-size: 18px; color: #d4af37; margin-bottom: 4px; }
+    p.sub { font-size: 12px; color: #999; margin-top: 0; margin-bottom: 16px; }
+    .day {
+      border: 1px solid #d4af37; border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 10px; background: #1a1a1a;
+    }
+    .day-label {
+      font-weight: bold; margin-bottom: 8px;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .times { display: flex; align-items: center; gap: 6px; }
+    select {
+      padding: 8px; background: #222; color: #eee;
+      border: 1px solid #555; border-radius: 6px; flex: 1;
+    }
+    select:disabled { opacity: 0.3; }
+    label.off { display: flex; align-items: center; gap: 4px; font-weight: normal; font-size: 13px; color: #ccc; }
+    button#submitBtn {
+      width: 100%; padding: 14px; background: #d4af37; color: #111;
+      font-weight: bold; border: none; border-radius: 8px; font-size: 16px;
+      margin-top: 12px;
+    }
+    button#submitBtn:disabled { opacity: 0.5; }
+    #status { text-align: center; margin-top: 12px; font-size: 14px; color: #d4af37; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <h1>ACRO シフト希望</h1>
+  <p class="sub">出勤できる日は時間を、休みの日はチェックを入れてください</p>
+  <div id="form"></div>
+  <button id="submitBtn" onclick="submitForm()" disabled>読み込み中...</button>
+  <div id="status"></div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    // ↓↓↓ 必ず自分のLIFF IDとGASウェブアプリURLに書き換えてください ↓↓↓
+    const LIFF_ID = '2010662463-ufSjuYYr';
+    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/XXXXXXXXXX/exec';
+    // ↑↑↑ ここまで ↑↑↑
+
+    const START_HOUR = 12;
+    const END_HOUR = 29; // 29:00 = "LAST"
+    const STEP_MIN = 30;
+
+    let profile = null;
+
+    // 次週の月曜日〜日曜日、7日分の日付リストを生成(クライアント側で計算)
+    function getUpcomingDays() {
+      const days = [];
+      const today = new Date();
+      const dow = today.getDay(); // 0=日,1=月,...,6=土
+      const offsetToThisMonday = (dow + 6) % 7;
+      const nextMonday = new Date(today);
+      nextMonday.setDate(today.getDate() - offsetToThisMonday + 7);
+
+      const youbiJp = ['日', '月', '火', '水', '木', '金', '土'];
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(nextMonday);
+        d.setDate(nextMonday.getDate() + i);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        days.push({
+          dateStr: yyyy + '-' + mm + '-' + dd,
+          label: (d.getMonth() + 1) + '/' + d.getDate() + '(' + youbiJp[d.getDay()] + ')'
+        });
+      }
+      return days;
+    }
+
+    function getTimeOptions() {
+      const options = [];
+      for (let h = START_HOUR; h <= END_HOUR; h++) {
+        for (let m = 0; m < 60; m += STEP_MIN) {
+          if (h === END_HOUR && m > 0) continue;
+          const value = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+          let label;
+          if (h === END_HOUR && m === 0) {
+            label = 'LAST';
+          } else {
+            const displayH = h >= 24 ? ('翌' + String(h - 24).padStart(2, '0')) : String(h).padStart(2, '0');
+            label = displayH + ':' + String(m).padStart(2, '0');
+          }
+          options.push({ label: label, value: value });
+        }
+      }
+      return options;
+    }
+
+    const days = getUpcomingDays();
+    const timeOptions = getTimeOptions();
+
+    function buildOptions(selected) {
+      return timeOptions.map(function(t) {
+        return '<option value="' + t.value + '"' + (t.value === selected ? ' selected' : '') + '>' + t.label + '</option>';
+      }).join('');
+    }
+
+    function render() {
+      const container = document.getElementById('form');
+      container.innerHTML = days.map(function(d) {
+        return '' +
+          '<div class="day" data-date="' + d.dateStr + '">' +
+          '  <div class="day-label">' +
+          '    <span>' + d.label + '</span>' +
+          '    <label class="off"><input type="checkbox" class="offCheck" onchange="toggleOff(this)"> 休み</label>' +
+          '  </div>' +
+          '  <div class="times">' +
+          '    <select class="startSelect">' + buildOptions('12:00') + '</select>' +
+          '    <span>〜</span>' +
+          '    <select class="endSelect">' + buildOptions('20:00') + '</select>' +
+          '  </div>' +
+          '</div>';
+      }).join('');
+    }
+
+    function toggleOff(checkbox) {
+      const dayDiv = checkbox.closest('.day');
+      dayDiv.querySelectorAll('select').forEach(function(s) {
+        s.disabled = checkbox.checked;
+      });
+    }
+
+    function submitForm() {
+      const entries = [];
+      document.querySelectorAll('.day').forEach(function(dayDiv) {
+        entries.push({
+          date: dayDiv.getAttribute('data-date'),
+          isOff: dayDiv.querySelector('.offCheck').checked,
+          start: dayDiv.querySelector('.startSelect').value,
+          end: dayDiv.querySelector('.endSelect').value
+        });
+      });
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      document.getElementById('status').textContent = '送信中...';
+
+      fetch(GAS_WEBAPP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // プリフライトを回避するため text/plain で送る
+        body: JSON.stringify({
+          userId: profile ? profile.userId : 'unknown',
+          displayName: profile ? profile.displayName : '不明',
+          entries: entries
+        })
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.status === 'ok') {
+            document.getElementById('status').textContent = '送信が完了しました。お疲れ様です!';
+            if (typeof liff !== 'undefined' && liff.isInClient && liff.isInClient()) {
+              setTimeout(function() { liff.closeWindow(); }, 1500);
+            }
+          } else {
+            document.getElementById('status').textContent = 'エラー: ' + (data.message || '不明なエラー');
+            btn.disabled = false;
+          }
+        })
+        .catch(function(err) {
+          document.getElementById('status').textContent = '通信エラー: ' + err.message;
+          btn.disabled = false;
+        });
+    }
+
+    render();
+
+    function enableSubmit(warningText) {
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = false;
+      btn.textContent = '送信する';
+      if (warningText) {
+        document.getElementById('status').textContent = warningText;
+      }
+    }
+
+    function showFatalError(label, err) {
+      const msg = (err && (err.message || err.errorMessage || JSON.stringify(err))) || String(err);
+      document.getElementById('status').textContent = '[' + label + '] ' + msg;
+      enableSubmit();
+    }
+
+    try {
+      if (typeof liff === 'undefined') {
+        showFatalError('LIFF SDK未読込', 'liffオブジェクトが存在しません');
+      } else {
+        liff.init({ liffId: LIFF_ID })
+          .then(function() {
+            if (!liff.isLoggedIn()) {
+              liff.login();
+              return;
+            }
+            return liff.getProfile();
+          })
+          .then(function(p) {
+            if (p) {
+              profile = p;
+              enableSubmit();
+            }
+          })
+          .catch(function(err) {
+            showFatalError('LIFF初期化エラー', err);
+          });
+      }
+    } catch (err) {
+      showFatalError('同期エラー', err);
+    }
+
+    setTimeout(function() {
+      const btn = document.getElementById('submitBtn');
+      if (btn.disabled) {
+        showFatalError('タイムアウト', 'LIFF初期化が完了しませんでした(通信環境をご確認ください)');
+      }
+    }, 8000);
+  </script>
+</body>
+</html>
